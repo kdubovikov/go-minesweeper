@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/list"
 	"errors"
 	"fmt"
 	"log"
@@ -17,6 +18,8 @@ type Cell struct {
 	label     int8
 	flagged   bool
 	uncovered bool
+	x         int8
+	y         int8
 }
 
 type Minesweeper struct {
@@ -53,20 +56,29 @@ func NewMinesweeper(width, height, numBombs int8) (error, *Minesweeper) {
 	}
 
 	// generate bombs at random positions
-	bombCount := int8(0)
-	for {
-		i := rand.Intn(int(height))
-		j := rand.Intn(int(width))
+	// consider all bombs are placed at the start
+	// for each bomb we will swap it with random element
+	for i := 0; i < int(numBombs+1); i++ {
+		// generate a second cell index to swap with
+		i2 := i + rand.Intn(int(width)*int(height)-i)
 
-		if !field[i][j].isBomb {
-			field[i][j].isBomb = true
-			bombCount++
+		// convert sequential index to row number
+		row1 := i / int(width)
+
+		// if indices are different, then we should place bomb at
+		// newly generated index
+		if i != i2 {
+			// convert sequential index to row and col numbers
+			row2 := i2 / int(width)
+			col2 := (i2 - row2*int(width)) % int(width)
+
+			field[row2][col2].isBomb = true
 		} else {
-			continue
-		}
+			// convert sequential index to col number
+			col1 := (i - row1*int(width)) % int(width)
 
-		if bombCount == numBombs {
-			break
+			// else, leave the bomb at the current index
+			field[row1][col1].isBomb = true
 		}
 	}
 
@@ -86,6 +98,8 @@ func NewMinesweeper(width, height, numBombs int8) (error, *Minesweeper) {
 
 	for i := int8(0); i < int8(height); i++ {
 		for j := int8(0); j < int8(width); j++ {
+			field[i][j].x = j
+			field[i][j].y = i
 			field[i][j].label = countBombsAround(j, i)
 		}
 	}
@@ -103,13 +117,38 @@ func (ms Minesweeper) Get(x, y int) (error, *Cell) {
 
 // Uncover acts on a Cell at position x, y and returns if it's a bomb.
 // If cell is not a bomb, it's label is also updated to comtain the number of surronding bombs
+// Surrounding empty cells are uncovered automatically
 func (ms *Minesweeper) Uncover(x, y int) (error, bool) {
 	if x >= ms.height || y >= ms.width {
 		return errors.New("x or y is larger than a field size"), false
 	}
 
-	ms.field[y][x].uncovered = true
-	return nil, ms.field[y][x].isBomb
+	cell := &ms.field[y][x]
+	if !cell.isBomb {
+		// uncover surrounding cells
+		queue := list.New()
+		queue.PushBack(cell)
+
+		for queue.Len() > 0 {
+			elem := queue.Front()
+			currentCell := elem.Value.(*Cell)
+			currentCell.uncovered = true
+			queue.Remove(elem)
+
+			for i := Max(0, currentCell.y-1); i < Min(int8(ms.height), currentCell.y+2); i++ {
+				for j := Max(0, currentCell.x-1); j < Min(int8(ms.width), currentCell.x+2); j++ {
+					neighbourCell := &ms.field[i][j]
+					if !neighbourCell.isBomb && !neighbourCell.uncovered && neighbourCell.label == 0 {
+						queue.PushBack(neighbourCell)
+					}
+				}
+			}
+		}
+	} else {
+		cell.uncovered = true
+	}
+
+	return nil, cell.isBomb
 }
 
 // NewRenderer creates new rederer for given Minesweeper reference
@@ -249,4 +288,11 @@ func main() {
 	}
 
 	renderer.StartLoop()
+
+	// q := list.New()
+	// cell := Cell{}
+	// q.PushBack(&cell)
+	// val := q.Front().Value.(*Cell)
+	// val.uncovered = true
+	// fmt.Println(val)
 }
